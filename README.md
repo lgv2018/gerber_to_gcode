@@ -1,5 +1,5 @@
 # gerber_to_gcode
-Simple python script for converting gerber files into gcode to directly print solder paste
+Simple python script for converting gerber files into gcode to directly print solder paste. It depends mainly on the project [gerber_to_scad](https://github.com/kirberich/gerber_to_scad).
 
 ## Installation
 
