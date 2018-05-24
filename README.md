@@ -1,10 +1,10 @@
-# gerber_to_scad
-Simple python script for converting gerber files into a 3d printable solder stencil scad file
+# gerber_to_gcode
+Simple python script for converting gerber files into gcode to directly print solder paste
 
 ## Installation
 
 ```bash
-cd gerber_to_scad
+cd gerber_to_gcode
 virtualenv env # Only tested for python 2.7
 source env/bin/activate
 pip install -r requirements.txt
@@ -12,12 +12,13 @@ pip install -r requirements.txt
 
 You should now be able to run the script. You'll get some information on available options if you run it with the -h argument:
 ```bash
-(env) $ python gerber_to_scad.py -h
-usage: gerber_to_scad.py [-h] [-t THICKNESS] [-n] [-L LEDGE_HEIGHT] [-g GAP]
-                         [-i INCREASE_HOLE_SIZE]
-                         outline_file solderpaste_file output_file
+(env) $ python gerber_to_gcode.py -h
+usage: gerber_to_gcode.py [-h] [-t THICKNESS] [-x OFFSET_X] [-y OFFSET_Y]
+                          [-z OFFSET_Z] [-s SOLDER_HEIGHT] [-f FLOWRATE]
+                          [-r RETRACTION]
+                          outline_file solderpaste_file output_file
 
-Convert gerber files to an scad 3d printable solder stencil.
+Convert gerber files to gcode to print solderpaste with a 3d printer.
 
 positional arguments:
   outline_file          Outline file
@@ -27,26 +28,25 @@ positional arguments:
 optional arguments:
   -h, --help            show this help message and exit
   -t THICKNESS, --thickness THICKNESS
-                        Thickness (in mm) of the stencil. Make sure this is a
-                        multiple of the layer height you use for printing
-                        (default: 0.2)
-  -n, --no-ledge        By default, a ledge around half the outline of the
-                        board is included, to allow aligning the stencil
-                        easily. Pass this to exclude this ledge.
-  -L LEDGE_HEIGHT, --ledge-height LEDGE_HEIGHT
-                        Height of the stencil ledge. This should be less than
-                        the thickness of the PCB (default: 1.2)
-  -g GAP, --gap GAP     Gap (in mm) between board and stencil ledge. Increase
-                        this if the fit of the stencil is too tight (default:
-                        0.0)
-  -i INCREASE_HOLE_SIZE, --increase-hole-size INCREASE_HOLE_SIZE
-                        Increase the size of all holes in the stencil by this
-                        amount (in mm). Use this if you find holes get printed
-                        smaller than they should (default: 0.0)
+                        Thickness (in mm) of the PCB. (default: 1.6)
+  -x OFFSET_X, --offset_x OFFSET_X
+                        Offset in X-direction. (default: 0.0)
+  -y OFFSET_Y, --offset_y OFFSET_Y
+                        Offset in Y-direction. (default: 0.0)
+  -z OFFSET_Z, --offset_z OFFSET_Z
+                        Offset in Z-direction. (default: 0.0)
+  -s SOLDER_HEIGHT, --solder_height SOLDER_HEIGHT
+                        Height of the solder paste. (default: 0.3)
+  -f FLOWRATE, --flowrate FLOWRATE
+                        Increase the flow rate (in %) of the solder paste.
+                        (default: 100)
+  -r RETRACTION, --retraction RETRACTION
+                        Retraction length (in mm) of the solder paste.
+                        (default: 2.0)
 ```
 
 For basic usage, simply run the script with input files for the gerber outline and solderpaste files and specify an output:
 
 ```bash
-python gerber_to_scad.py outline_file.gko toppaste_file.gtp output.stl
+python gerber_to_gcode.py outline_file.gko toppaste_file.gtp output.gcode
 ```
