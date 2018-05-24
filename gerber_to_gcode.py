@@ -8,15 +8,6 @@ from scipy.spatial import ConvexHull
 import gerber
 from gerber import primitives
 
-from solid import (
-    polygon,
-    scad_render,
-    union,
-    linear_extrude,
-    rotate,
-    translate
-)
-from solid import utils
 from vector import V
 
 
@@ -265,6 +256,7 @@ def lines_to_shapes(lines):
     # shapes = [convex_hull(shape) for shape in shapes if len(shape) > 2]
     return shapes
 
+
 def start_code():
     return """; ###START
 G91
@@ -277,6 +269,7 @@ G28 Z
 G1 Z5
 G1 X0 Y0"""
 
+
 def end_code():
     return """; ###ENDE
 G90
@@ -287,11 +280,14 @@ M84
 M81
 """
 
+
 def extraction(laenge, hoehe, spitze, cylinder):
     return laenge*4*hoehe*spitze/(math.pow(cylinder,2)*math.pi)
 
+
 def abstand_pads(pad1, pad2):
     return math.sqrt(math.pow((pad1[3][0]+pad1[0][0]-pad2[3][0]-pad2[0][0]),2)+math.pow((pad1[0][1]+pad1[1][1]-pad2[0][1]-pad2[1][1]),2))/2
+
 
 def code_from_shapes(shapes, nozzle_diameter=1.0, height=0.3, offset=[0,0], retraction=2.0, zeit_r=10, cylinder=16):
     code = "; ###PADS\n"
@@ -323,7 +319,8 @@ def code_from_shapes(shapes, nozzle_diameter=1.0, height=0.3, offset=[0,0], retr
         else:
             code += "G90\n"
 
-def create_cutouts(solder_paste, increase_hole_size_by=0.0, offset=[0,0]):
+
+def create_cutouts(solder_paste, offset=[0,0]):
     solder_paste.to_metric()
 
     cutout_shapes = []
@@ -338,16 +335,10 @@ def create_cutouts(solder_paste, increase_hole_size_by=0.0, offset=[0,0]):
 
     # If the cutouts contain lines we try to first join them together into shapes
     cutout_shapes += lines_to_shapes(cutout_lines)
-    print start_code()
-    polygons = []
-    for shape in cutout_shapes:
-        if increase_hole_size_by and len(shape) > 2:
-            shape = offset_shape(shape, increase_hole_size_by)
-        polygons.append(polygon([[x, y] for x, y in shape]))
-
-    print code_from_shapes(cutout_shapes, offset=offset)
-    print end_code()
-    return union()(*polygons)
+    code = start_code()
+    code += code_from_shapes(cutout_shapes, offset=offset)
+    code += end_code()
+    return code
 
 
 def bounding_box(shape):
@@ -363,59 +354,17 @@ def bounding_box(shape):
     ]
 
 
-def process(outline_file, solderpaste_file, stencil_thickness=0.2, include_ledge=True,
-            ledge_height=1.2, ledge_gap=0.0, increase_hole_size_by=0.0):
-
+def process(outline_file, solderpaste_file):
     outline_shape = create_outline_shape(outline_file)
     aussen = bounding_box(outline_shape)
-    cutout_polygon = create_cutouts(solderpaste_file, increase_hole_size_by=increase_hole_size_by, offset=[-aussen[0][0],-aussen[0][1]])
-
-    if ledge_gap:
-        # Add a gap between the ledge and the stencil
-        outline_shape = offset_shape(outline_shape, ledge_gap)
-    outline_polygon = polygon(outline_shape)
-
-    stencil = linear_extrude(height=stencil_thickness)(cutout_polygon)
-    stencil = translate([-aussen[0][0],-aussen[0][1],0])(stencil)
-
-    if include_ledge:
-        ledge_shape = offset_shape(outline_shape, 1.2)
-        ledge_polygon = polygon(ledge_shape) - outline_polygon
-
-        # Cut the ledge in half by taking the bounding box of the outline, cutting it in half
-        # and removing the resulting shape from the ledge shape
-        # We always leave the longer side of the ledge intact so we don't end up with a tiny ledge.
-        cutter = bounding_box(ledge_shape)
-        height = abs(cutter[1][1] - cutter[0][1])
-        width = abs(cutter[0][0] - cutter[3][0])
-
-        if width > height:
-            cutter[1][1] -= height/2
-            cutter[2][1] -= height/2
-        else:
-            cutter[2][0] -= width/2
-            cutter[3][0] -= width/2
-
-        ledge_polygon = ledge_polygon - polygon(cutter)
-
-        ledge = utils.down(
-            ledge_height - stencil_thickness
-        )(
-            linear_extrude(height=ledge_height)(ledge_polygon)
-        )
-        stencil = ledge + stencil
-
-    # Rotate the stencil to make it printable
-#    stencil = rotate(a=180, v=[1, 0, 0])(stencil)
-
-    return scad_render(stencil)
+    return create_cutouts(solderpaste_file, offset=[-aussen[0][0],-aussen[0][1]])
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Convert gerber files to an scad 3d printable solder stencil.')
+    parser = argparse.ArgumentParser(description='Convert gerber files to gcode to print solderpaste with a 3d printer.')
     parser.add_argument('outline_file', help='Outline file')
     parser.add_argument('solderpaste_file', help='Solderpaste file')
-    parser.add_argument('output_file', help='Output file', default="output.scad")
+    parser.add_argument('output_file', help='Output file', default="output.gcode")
 
     # Optional arguments
     parser.add_argument('-t', '--thickness', type=float, default=0.2,
@@ -447,11 +396,6 @@ if __name__ == '__main__':
         output_file.write(
             process(
                 outline,
-                solder_paste,
-                args.thickness,
-                args.include_ledge,
-                args.ledge_height,
-                args.gap,
-                args.increase_hole_size
+                solder_paste
             )
         )
