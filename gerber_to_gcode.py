@@ -257,7 +257,7 @@ def lines_to_shapes(lines):
     return shapes
 
 
-def start_code():
+def start_code(offset_z = 0):
     return """; ###START
 G91
 G1 Z10
@@ -266,14 +266,14 @@ G21
 G92 E0
 G28 X Y
 G28 Z
-G1 Z5
+G1 Z7.5
 G1 X0 Y0"""
 
 
-def end_code():
+def end_code(offset_z = 0):
     return """; ###ENDE
 G90
-G1 Z5
+G1 Z7.5
 G28 X Y
 G1 Y220
 M84
@@ -281,15 +281,11 @@ M81
 """
 
 
-def extraction(laenge, hoehe, spitze, cylinder):
-    return laenge*4*hoehe*spitze/(math.pow(cylinder,2)*math.pi)
-
-
 def abstand_pads(pad1, pad2):
     return math.sqrt(math.pow((pad1[3][0]+pad1[0][0]-pad2[3][0]-pad2[0][0]),2)+math.pow((pad1[0][1]+pad1[1][1]-pad2[0][1]-pad2[1][1]),2))/2
 
 
-def code_from_shapes(shapes, nozzle_diameter=1.0, height=0.3, offset=[0,0], retraction=2.0, zeit_r=10, cylinder=16):
+def code_from_shapes(shapes, nozzle_diameter=1.0, height=0.3, offset=[0,0,0], retraction=2.0, cylinder=16, thickness = 1.6, flowrate = 100):
     code = "; ###PADS\n"
     for index, shape in enumerate(shapes):
         code += "; %s\n" % shape
@@ -298,31 +294,34 @@ def code_from_shapes(shapes, nozzle_diameter=1.0, height=0.3, offset=[0,0], retr
         hoehe = shape[1][1]-shape[0][1]
         code += "; B:%f H:%f A:%f\n" % (breite, hoehe, breite*hoehe)
         code += "G1 X%f Y%f F4000\n" % ((shape[3][0]+shape[0][0])/2+offset[0], (shape[0][1]+shape[1][1])/2+offset[1])
+        solder_height = height
         if index == 0:
-            code += "G1 Z%f F500\n" % (height+1.6)
-            code += "G91\nG1 E%f F750\n" % (retraction*2)
+            code += "G1 Z%f F500\n" % (solder_height+thickness+offset[2])
+            code += "G91\nG1 E%f F650\n" % (retraction*2)
         else:
             if abstand_pads(shape, shapes[index-1]) > nozzle_diameter:
-                code += "G1 Z%f F500\n" % (height+1.6)
-                code += "G91\nG1 E%f F1000\n" % retraction
+                if index+1 < len(shapes):
+                    if abstand_pads(shape, shapes[index+1]) < nozzle_diameter:
+                        solder_height = height/2;
+                code += "G1 Z%f F500\n" % (solder_height+thickness+offset[2])
+                code += "G91\nG1 E%f F350\n" % retraction
             else:
                 code += "; Abstand %f\n" % abstand_pads(shape, shapes[index-1])
                 code += "G91\n"
-        code += "G1 E%f F3\n" % (4*breite*hoehe/(math.pow(cylinder,2)*math.pi)-0.001)
+        code += "G1 E%f F3\n" % ((4*breite*hoehe/(math.pow(cylinder,2)*math.pi))*flowrate/100.0*solder_height)
         if index+1 == len(shapes):
             code += "G1 E-%f F1000\n" % retraction
-            code += "G90\nG1 Z5 F500\n"
+            code += "G90\nG1 Z%f F500\n" % (5+thickness+offset[2])
             return code
         if abstand_pads(shape, shapes[index+1]) > nozzle_diameter:
             code += "G1 E-%f F1000\n" % retraction
-            code += "G90\nG1 Z5 F500\n"
+            code += "G90\nG1 Z%f F500\n" % (5+thickness+offset[2])
         else:
             code += "G90\n"
 
 
-def create_cutouts(solder_paste, offset=[0,0]):
+def create_cutouts(solder_paste, height=0.3, offset=[0,0,0], retraction=2, thickness = 1.6, flowrate = 100):
     solder_paste.to_metric()
-
     cutout_shapes = []
     cutout_lines = []
 
@@ -335,9 +334,9 @@ def create_cutouts(solder_paste, offset=[0,0]):
 
     # If the cutouts contain lines we try to first join them together into shapes
     cutout_shapes += lines_to_shapes(cutout_lines)
-    code = start_code()
-    code += code_from_shapes(cutout_shapes, offset=offset)
-    code += end_code()
+    code = start_code(offset[2])
+    code += code_from_shapes(cutout_shapes, height=height, offset=offset, retraction=retraction, thickness=thickness, flowrate=flowrate)
+    code += end_code(offset[2])
     return code
 
 
@@ -354,10 +353,10 @@ def bounding_box(shape):
     ]
 
 
-def process(outline_file, solderpaste_file):
+def process(outline_file, solderpaste_file, height=0.3, retraction=2, thickness=1.6, offset=[0,0,0], flowrate=100):
     outline_shape = create_outline_shape(outline_file)
     aussen = bounding_box(outline_shape)
-    return create_cutouts(solderpaste_file, offset=[-aussen[0][0],-aussen[0][1]])
+    return create_cutouts(solderpaste_file, height=height, offset=[-aussen[0][0]+offset[0],-aussen[0][1]+offset[1],offset[2]], retraction=retraction, thickness=thickness, flowrate=flowrate)
 
 
 if __name__ == '__main__':
@@ -367,23 +366,20 @@ if __name__ == '__main__':
     parser.add_argument('output_file', help='Output file', default="output.gcode")
 
     # Optional arguments
-    parser.add_argument('-t', '--thickness', type=float, default=0.2,
-        help='Thickness (in mm) of the stencil. Make sure this is a multiple '
-        'of the layer height you use for printing (default: %(default)0.1f)')
-    parser.add_argument('-n', '--no-ledge', dest='include_ledge', action='store_false',
-        help='By default, a ledge around half the outline of the board is included, to allow '
-        'aligning the stencil easily. Pass this to exclude this ledge.')
-    parser.set_defaults(include_ledge=True)
-    parser.add_argument('-L', '--ledge-height', type=float, default=1.2,
-        help='Height of the stencil ledge. This should be less than the '
-        'thickness of the PCB (default: %(default)0.1f)')
-    parser.add_argument('-g', '--gap', type=float, default=0,
-        help='Gap (in mm) between board and stencil ledge. Increase this if '
-        'the fit of the stencil is too tight (default: %(default)0.1f)')
-    parser.add_argument('-i', '--increase-hole-size', type=float, default=0,
-        help='Increase the size of all holes in the stencil by this amount (in '
-        'mm). Use this if you find holes get printed smaller than they should '
-        '(default: %(default)0.1f)')
+    parser.add_argument('-t', '--thickness', type=float, default=1.6,
+        help='Thickness (in mm) of the PCB. (default: %(default)0.1f)')
+    parser.add_argument('-x', '--offset_x',  type=float, default=0,
+        help='Offset in X-direction. (default: %(default)0.1f)')
+    parser.add_argument('-y', '--offset_y',  type=float, default=0,
+        help='Offset in Y-direction. (default: %(default)0.1f)')
+    parser.add_argument('-z', '--offset_z',  type=float, default=0,
+        help='Offset in Z-direction. (default: %(default)0.1f)')
+    parser.add_argument('-s', '--solder_height',  type=float, default=0.3,
+        help='Height of the solder paste. (default: %(default)0.1f)')
+    parser.add_argument('-f', '--flowrate', type=int, default=100,
+        help='Increase the flow rate (in %%) of the solder paste. (default: %(default)i)')
+    parser.add_argument('-r', '--retraction',  type=float, default=2,
+        help='Retraction length (in mm) of the solder paste. (default: %(default)0.1f)')
 
     args = parser.parse_args()
 
@@ -396,6 +392,11 @@ if __name__ == '__main__':
         output_file.write(
             process(
                 outline,
-                solder_paste
+                solder_paste,
+                args.solder_height,
+                args.retraction,
+                args.thickness,
+                [args.offset_x, args.offset_y, args.offset_z],
+                args.flowrate
             )
         )
