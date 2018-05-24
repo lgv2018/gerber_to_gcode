@@ -14,6 +14,7 @@ from solid import (
     union,
     linear_extrude,
     rotate,
+    translate
 )
 from solid import utils
 from vector import V
@@ -78,7 +79,7 @@ def has_wide_aperture(aperture):
 
 
 def rect_from_line(line):
-    """ Creates a rectangle from a line primitive by thickening it 
+    """ Creates a rectangle from a line primitive by thickening it
         according to the primitive's aperture size.
 
         Treats rectangular apertures as square because otherwise the maths
@@ -195,7 +196,7 @@ def offset_shape(shape, offset, inside=False):
 
 
 def find_line_closest_to_point(point, lines):
-    """ Finds the line from a list of lines that is closest to `point`. 
+    """ Finds the line from a list of lines that is closest to `point`.
         Returns a bunch of information about the closest line.
     """
     d = float('inf')
@@ -212,7 +213,7 @@ def find_line_closest_to_point(point, lines):
                 closest_line_index = line_index
 
     return {
-        'closest_line_index': closest_line_index, 
+        'closest_line_index': closest_line_index,
         'close_vertex': closest_vertex,
         'far_vertex': far_vertex
     }
@@ -264,8 +265,65 @@ def lines_to_shapes(lines):
     # shapes = [convex_hull(shape) for shape in shapes if len(shape) > 2]
     return shapes
 
+def start_code():
+    return """; ###START
+G91
+G1 Z10
+G90
+G21
+G92 E0
+G28 X Y
+G28 Z
+G1 Z5
+G1 X0 Y0"""
 
-def create_cutouts(solder_paste, increase_hole_size_by=0.0):
+def end_code():
+    return """; ###ENDE
+G90
+G1 Z5
+G28 X Y
+G1 Y220
+M84
+M81
+"""
+
+def extraction(laenge, hoehe, spitze, cylinder):
+    return laenge*4*hoehe*spitze/(math.pow(cylinder,2)*math.pi)
+
+def abstand_pads(pad1, pad2):
+    return math.sqrt(math.pow((pad1[3][0]+pad1[0][0]-pad2[3][0]-pad2[0][0]),2)+math.pow((pad1[0][1]+pad1[1][1]-pad2[0][1]-pad2[1][1]),2))/2
+
+def code_from_shapes(shapes, nozzle_diameter=1.0, height=0.3, offset=[0,0], retraction=2.0, zeit_r=10, cylinder=16):
+    code = "; ###PADS\n"
+    for index, shape in enumerate(shapes):
+        code += "; %s\n" % shape
+        if len(shape) < 4: return code
+        breite = shape[3][0]-shape[0][0]
+        hoehe = shape[1][1]-shape[0][1]
+        code += "; B:%f H:%f A:%f\n" % (breite, hoehe, breite*hoehe)
+        code += "G1 X%f Y%f F4000\n" % ((shape[3][0]+shape[0][0])/2+offset[0], (shape[0][1]+shape[1][1])/2+offset[1])
+        if index == 0:
+            code += "G1 Z%f F500\n" % (height+1.6)
+            code += "G91\nG1 E%f F750\n" % (retraction*2)
+        else:
+            if abstand_pads(shape, shapes[index-1]) > nozzle_diameter:
+                code += "G1 Z%f F500\n" % (height+1.6)
+                code += "G91\nG1 E%f F1000\n" % retraction
+            else:
+                code += "; Abstand %f\n" % abstand_pads(shape, shapes[index-1])
+                code += "G91\n"
+        code += "G1 E%f F3\n" % (4*breite*hoehe/(math.pow(cylinder,2)*math.pi)-0.001)
+        if index+1 == len(shapes):
+            code += "G1 E-%f F1000\n" % retraction
+            code += "G90\nG1 Z5 F500\n"
+            return code
+        if abstand_pads(shape, shapes[index+1]) > nozzle_diameter:
+            code += "G1 E-%f F1000\n" % retraction
+            code += "G90\nG1 Z5 F500\n"
+        else:
+            code += "G90\n"
+
+def create_cutouts(solder_paste, increase_hole_size_by=0.0, offset=[0,0]):
     solder_paste.to_metric()
 
     cutout_shapes = []
@@ -280,12 +338,15 @@ def create_cutouts(solder_paste, increase_hole_size_by=0.0):
 
     # If the cutouts contain lines we try to first join them together into shapes
     cutout_shapes += lines_to_shapes(cutout_lines)
+    print start_code()
     polygons = []
     for shape in cutout_shapes:
         if increase_hole_size_by and len(shape) > 2:
             shape = offset_shape(shape, increase_hole_size_by)
         polygons.append(polygon([[x, y] for x, y in shape]))
 
+    print code_from_shapes(cutout_shapes, offset=offset)
+    print end_code()
     return union()(*polygons)
 
 
@@ -306,14 +367,16 @@ def process(outline_file, solderpaste_file, stencil_thickness=0.2, include_ledge
             ledge_height=1.2, ledge_gap=0.0, increase_hole_size_by=0.0):
 
     outline_shape = create_outline_shape(outline_file)
-    cutout_polygon = create_cutouts(solderpaste_file, increase_hole_size_by=increase_hole_size_by)
+    aussen = bounding_box(outline_shape)
+    cutout_polygon = create_cutouts(solderpaste_file, increase_hole_size_by=increase_hole_size_by, offset=[-aussen[0][0],-aussen[0][1]])
 
     if ledge_gap:
         # Add a gap between the ledge and the stencil
         outline_shape = offset_shape(outline_shape, ledge_gap)
     outline_polygon = polygon(outline_shape)
 
-    stencil = linear_extrude(height=stencil_thickness)(outline_polygon - cutout_polygon)
+    stencil = linear_extrude(height=stencil_thickness)(cutout_polygon)
+    stencil = translate([-aussen[0][0],-aussen[0][1],0])(stencil)
 
     if include_ledge:
         ledge_shape = offset_shape(outline_shape, 1.2)
@@ -343,7 +406,7 @@ def process(outline_file, solderpaste_file, stencil_thickness=0.2, include_ledge
         stencil = ledge + stencil
 
     # Rotate the stencil to make it printable
-    stencil = rotate(a=180, v=[1, 0, 0])(stencil)
+#    stencil = rotate(a=180, v=[1, 0, 0])(stencil)
 
     return scad_render(stencil)
 
