@@ -83,11 +83,19 @@ def rect_from_line(line):
 
     dir_v = end_v - start_v
     # normalize direction vector
-    abs_dir_v = abs(dir_v)
-    if abs_dir_v:
-        dir_v = dir_v / abs_dir_v
-    else:
-        dir_v = V(0, 0)
+    dir_v_x = dir_v.x
+    dir_v_y = dir_v.y
+    abs_dir_v_x = abs(dir_v_x)
+    abs_dir_v_y = abs(dir_v_y)
+    dir_v_x_new = 0
+    dir_v_y_new = 0
+    
+    if abs_dir_v_x:
+        dir_v_x_new = dir_v_x / abs_dir_v_x
+    if abs_dir_v_y:
+        dir_v_y_new = dir_v_y / abs_dir_v_y
+    
+    dir_v = V(dir_v_x_new,dir_v_y_new)
 
     # 45 degree angle means the vector pointing to the new rectangle edges has to be sqrt(2)*r long
     v_len = math.sqrt(2)*r
@@ -288,11 +296,11 @@ def abstand_pads(pad1, pad2):
 def code_from_shapes(shapes, nozzle_diameter=1.0, height=0.3, offset=[0,0,0], retraction=2.0, cylinder=16, thickness = 1.6, flowrate = 100):
     code = "; ###PADS\n"
     for index, shape in enumerate(shapes):
-        code += "; %s\n" % shape
+        #code += "; %s\n" % shape
         if len(shape) < 4: return code
         breite = shape[3][0]-shape[0][0]
         hoehe = shape[1][1]-shape[0][1]
-        code += "; B:%f H:%f A:%f\n" % (breite, hoehe, breite*hoehe)
+        #code += "; B:%f H:%f A:%f\n" % (breite, hoehe, breite*hoehe)
         code += "G1 X%f Y%f F4000\n" % ((shape[3][0]+shape[0][0])/2+offset[0], (shape[0][1]+shape[1][1])/2+offset[1])
         solder_height = height
         if index == 0:
@@ -302,11 +310,11 @@ def code_from_shapes(shapes, nozzle_diameter=1.0, height=0.3, offset=[0,0,0], re
             if abstand_pads(shape, shapes[index-1]) > nozzle_diameter:
                 if index+1 < len(shapes):
                     if abstand_pads(shape, shapes[index+1]) < nozzle_diameter:
-                        solder_height = height/2;
+                        solder_height = height/2
                 code += "G1 Z%f F500\n" % (solder_height+thickness+offset[2])
                 code += "G91\nG1 E%f F350\n" % retraction
             else:
-                code += "; Abstand %f\n" % abstand_pads(shape, shapes[index-1])
+                #code += "; Abstand %f\n" % abstand_pads(shape, shapes[index-1])
                 code += "G91\n"
         code += "G1 E%f F3\n" % ((4*breite*hoehe/(math.pow(cylinder,2)*math.pi))*flowrate/100.0*solder_height)
         if index+1 == len(shapes):
@@ -383,8 +391,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    outline_file = open(args.outline_file, 'rU')
-    solderpaste_file = open(args.solderpaste_file, 'rU')
+    outline_file = open(args.outline_file, 'r')
+    solderpaste_file = open(args.solderpaste_file, 'r')
 
     outline = gerber.loads(outline_file.read())
     solder_paste = gerber.loads(solderpaste_file.read())

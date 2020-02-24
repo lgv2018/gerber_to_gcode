@@ -12,7 +12,8 @@ class V(object):
     __repr__ = __unicode__
 
     @classmethod
-    def from_tuple(cls, (x, y)):
+    def from_tuple(cls, point):
+        (x, y) = point
         return V(x, y)
 
     def as_tuple(self):
